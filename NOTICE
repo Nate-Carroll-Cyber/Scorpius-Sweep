@@ -1,0 +1,31 @@
+Scorpius Sweep
+Copyright 2026 Nate Carroll (Nate-Carroll-Cyber)
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+This product includes software developed by Cisco Systems, Inc.
+Specifically, the system prompt, tool definitions, prompt rendering, and agent
+loop rules in `antares_locate.py` are adapted from the
+cisco-foundation-ai/vulnerability-localization-benchmark repository
+(commit fa50b67), licensed under the Apache License 2.0:
+
+    Vulnerability Localization Benchmark
+    Copyright 2026 Cisco Foundation AI
+
+    This product includes software developed at Cisco Foundation AI.
+
+The adapted source files carry the header "Copyright 2026 Cisco Systems, Inc.
+and its affiliates, SPDX-License-Identifier: Apache-2.0" in the original
+repository (model_runners/base.py, model_runners/vllm_antares.py, agent.py,
+sandbox.py, Dockerfile). Changes made here are described in the comment block
+at the top of `antares_locate.py`.
+
+The CWE identifiers, names, and descriptions in `queries/all.json` and
+`queries/cwe-catalog.json` are taken from that repository's data/manifest.csv.
+The Common Weakness Enumeration (CWE) is maintained by The MITRE Corporation.
+CWE content is (c) The MITRE Corporation and is used under the CWE Terms of
+Use (https://cwe.mitre.org/about/termsofuse.html).
+
+This project is not affiliated with or endorsed by Cisco Systems, Inc. Antares
+is a model family published by Cisco Foundation AI. The model weights are not
+part of this project and are obtained separately under their own license.
