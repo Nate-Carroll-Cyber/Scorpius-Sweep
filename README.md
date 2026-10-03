@@ -4,11 +4,30 @@
 
 A local, two-model verification harness for Cisco's Antares-1B using Ollama and Cline.
 
+## Purpose
+
+Scorpius Sweep exists to help test Antares. It gives you a reproducible way to run Antares-1B on
+your own machine against a repository you choose, and to measure what it finds, what it misses,
+and what a second model makes of its output.
+
 Antares-1B is a small model from Cisco Foundation AI that locates vulnerable files in a repository
 by running shell commands. It is not a chat model and cannot drive Cline. Scorpius Sweep runs it
 behind a loop that reproduces Cisco's benchmark protocol, executes its commands in a sandbox with
 no network, and sweeps the repository for every CWE class in the benchmark. A second, general model
 in Cline then reads the files it names and confirms or dismisses each lead.
+
+## What it is not
+
+It is not a vulnerability scanner and should not be used as one.
+
+- A clean result does not mean the code is clean. In the worked example the two-model pipeline,
+  run without hints, confirmed one finding and dismissed four weaknesses that were in files it read.
+- The localizer's precision is low. Cisco reports a File F1 of 0.209 for Antares-1B on its own
+  benchmark.
+- The 145 CWE classes are the ones Cisco's benchmark evaluates. Which classes the model was trained
+  on is not published. `score_classes.py` measures which classes it has a search strategy for.
+- All results so far come from one TypeScript target on one machine.
+- Every lead needs a person to verify it.
 
 `RUNBOOK.md` is the full procedure, with results from a worked example. This page is the map.
 
@@ -37,18 +56,13 @@ of this project.
 | `run_review.sh` | Sweeps a target. Takes a git URL or path, or reuses the recorded one. |
 | `queries/all.json` | All 145 CWE classes from Cisco's benchmark. The default query set. |
 | `queries/cwe-catalog.json`, `make_queries.py` | Build your own query file from CWE IDs you choose. |
+| `score_classes.py`, `queries/controls.json` | Score each class by how the model searched for it, against invented control classes. |
 | `Dockerfile` | Sandbox image: Ubuntu 24.04 with `rg` and `tree`. |
 | `.clinerules/scorpius-sweep.md` | The rule the driver model follows in Cline. |
 | `tests/test_harness.py` | 148 checks: hostile commands against the sandbox, parser cases, and the loop against a mock Ollama server. |
 | `RUNBOOK.md` | Setup, protocol, weight conversion, worked example, Cline steps, safety boundaries. |
 | `LICENSE`, `NOTICE` | Apache 2.0, with attribution to Cisco's benchmark harness and MITRE CWE. |
 | `assets/` | The project banner. |
-
-## What to expect
-
-Antares is a lead generator. On the worked example Antares-1B named a known-relevant file on 5 of
-14 hand-picked CWE classes, and the driver model confirmed one finding without help. Treat every
-result as a lead that a person must verify.
 
 ## License
 

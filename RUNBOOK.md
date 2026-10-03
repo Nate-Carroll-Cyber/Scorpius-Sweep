@@ -1,10 +1,22 @@
 # Scorpius Sweep runbook
 
 Scorpius Sweep is a local, two-model verification harness for Cisco's Antares-1B using Ollama and
-Cline. Antares-1B sweeps a repository for CWE classes and names candidate files. A second, general
-model in Cline reads those files and confirms or dismisses each lead. This runbook is the working
-configuration as of 3 Oct 2026 on a Mac Studio (M3 Ultra). The worked example is a public MCP
-server monorepo written in TypeScript.
+Cline. Its purpose is to help test Antares. Antares-1B sweeps a repository for CWE classes and
+names candidate files, a second, general model in Cline reads those files and confirms or
+dismisses each lead, and the kit records what was found, what was missed, and how the model
+searched. This runbook is the working configuration as of 3 Oct 2026 on a Mac Studio (M3 Ultra).
+The worked example is a public MCP server monorepo written in TypeScript.
+
+Limits to read before using any result.
+
+| Limit | Detail |
+|---|---|
+| Not a vulnerability scanner | A clean result does not mean the code is clean. Run without hints, the pipeline confirmed one finding in the worked example and dismissed four weaknesses in files it had read (section 7). |
+| Low precision | Cisco reports a File F1 of 0.209 for Antares-1B on its own benchmark. Generated files often rank first. |
+| Training classes unknown | The 145 CWE classes are the ones the benchmark evaluates. Cisco does not publish the training list (section 3). |
+| One target | Every number here comes from one TypeScript repository on one machine. Classes that belong to other languages score poorly for that reason alone. |
+| Driver judgment | The driver model quotes code accurately and misjudges it. Its dismissals are not evidence of absence. |
+| Human review | Every lead needs a person to verify it. |
 
 ## 1. What the stack is
 
@@ -207,6 +219,37 @@ driver does not investigate them.
 | `--min-agree N` | Runs that must name a file for it to count as a lead. Default 2. |
 | `--resume` | Reuse finished runs in the output folder after an interruption. |
 | `--model NAME` | Use another model, for example an Antares-1B build. |
+
+### Score the classes
+
+A sweep on one repository cannot show which classes the model was trained on. A class with no hit
+may be absent from the repository or unknown to the model. The transcripts do show whether the
+model has a search strategy for a class, and `score_classes.py` measures that.
+
+First sweep the control classes. `queries/controls.json` holds the benchmark's own fallback text
+("Unknown vulnerability class") and three invented classes that do not exist. They show how the
+model behaves when it has nothing to go on.
+
+```
+./run_review.sh --queries queries/controls.json --out results/<name>-controls --device cpu
+python3 score_classes.py --out results/<name> --queries queries/all.json \
+  --controls results/<name>-controls
+```
+
+| Score | Meaning |
+|---|---|
+| Learned terms | Search terms that are not words from the CWE description, are not used for more than a quarter of all classes, and were not used for any control. `innerHTML` for cross-site scripting is a learned term. A model that echoes the description or reuses the same terms everywhere scores near zero. |
+| Echo share | Share of its search terms that are just words from the description. |
+| Agreed files | Source files named by at least two runs. |
+| Invented share | Share of submitted paths that do not exist. |
+| Repeat share | Share of commands that repeat an earlier command in the same run. |
+
+A class is marked as having a strategy only when its learned terms beat every control. The output
+is `class-scores.md` and `class-scores.json` in the sweep folder. To sweep only those classes next
+time, build a query file from their IDs with `make_queries.py`.
+
+The scores describe search behaviour on one target. They are not a training list, and a class that
+scores low on a TypeScript repository may score well on a C or Java one.
 
 ## 6. Converting weights from safetensors to GGUF
 

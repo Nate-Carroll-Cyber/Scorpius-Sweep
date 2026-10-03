@@ -22,7 +22,7 @@ fi
 # shellcheck disable=SC1091
 . ./.antares-target
 MODEL="${ANTARES_MODEL:-${MODEL:-antares-1b}}"
-# --model and --out on the command line win over the recorded values. Pick them up so the banner is accurate.
+# --model, --out and --queries on the command line win over the recorded values. Pick them up so the banner is accurate.
 ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -30,6 +30,8 @@ while [ $# -gt 0 ]; do
     --model=*) MODEL="${1#--model=}"; shift;;
     --out) OUT_DIR="$2"; shift 2;;
     --out=*) OUT_DIR="${1#--out=}"; shift;;
+    --queries) QUERIES="$2"; shift 2;;
+    --queries=*) QUERIES="${1#--queries=}"; shift;;
     *) ARGS+=("$1"); shift;;
   esac
 done
