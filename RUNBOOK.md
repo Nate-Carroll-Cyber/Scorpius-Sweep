@@ -107,7 +107,7 @@ hyphen. The choice is recorded in `.antares-target`, which the Cline rule reads.
 1. Checks Python and Ollama.
 2. Checks that the Antares model is registered in Ollama. The default name is `antares-1b`. Set `ANTARES_MODEL` to another Ollama model name before `./setup.sh` to use a different one. Section 6 shows how to create the model from the official weights.
 3. Clones the target, pinned to the commit or ref if one was given. Skipped for a local path. Then chooses the query file (see below).
-4. Runs the harness tests (81 checks, and 5 more against the real sandbox when Docker is answering).
+4. Runs the harness tests. They cover the prompt, the loop against a mock Ollama server, the scoring, the report check and, when Docker is answering, the real sandbox.
 5. Builds the `antares-sandbox` Docker image (Ubuntu 24.04 with `rg` and `tree`) and stops if Docker is not answering. The harness also builds the image on first use if it is missing. It does not fall back to a bare image or to running commands on the host.
 6. Probes the model and picks the device that returns a tool call.
 7. Runs one smoke query, the first in the query file.
@@ -549,6 +549,7 @@ all three reports.
 | Pass A | 12 of 12 | 0 | 0 |
 | Pass B | 3 of 3 | 0 | 0 |
 | Third pass | 0 of 18 | 8 | 9 |
+| Fourth pass | 8 of 8 | 1 | 0 |
 
 The third report listed 14 confirmed findings. Its quotes included a session identifier built
 with `Math.random()`, a refresh-token field and a path-normalising function, none of which exist
@@ -556,6 +557,30 @@ in the source, and it cited line 383 of a 71-line file. It also listed hotspot f
 counts that were not in `leads.json`. Context size was checked and was not the cause. A driver
 that quotes accurately on one run and invents on the next cannot be trusted on its own word in
 either, so the report is now checked by script before a person reads it.
+
+A fourth pass, by the same driver on the final leads (22 classes, no hotspots), was then checked
+by script and by hand. It stated the lead counts correctly, covered all 22 leads, and every code
+quote was real. Its line references held up as well, within one line, across the roughly thirty
+spot-checked.
+
+| Result of the fourth pass | Detail |
+|---|---|
+| Leads confirmed | 4 of 22. Path traversal, absolute path write, external control of a file path and command injection, all in the sandbox container app and its file utilities. |
+| Distinct weaknesses behind them | 2. The file write that passes a request path straight to `fs.writeFile`, and the shell `exec` on request input. |
+| Found by its own search | A bearer token left in a commented-out block of a demo frontend script. |
+| Leads dismissed | 18, most as "the right file, and the protection is there". |
+
+The hand check found four problems the script cannot see. The report calls path traversal
+confirmed for reads and deletes, where the path comes from the request URL and was never tested,
+so that part is a claim and not a finding. It dismisses three authorization classes on the OAuth
+handler without mentioning that the handler replaces the requested scope with the server's full
+set, the same miss as Pass B. It says the classes with no agreed lead "genuinely appear safe",
+although Pass A confirmed weaknesses in three of them. And its list of what it did not check
+names one file that does not exist and gives another a length sixteen times its real one.
+
+Four passes by one driver on one repository produced accurate quotes three times and invented
+ones once, and judgment errors every time. The script settles the first kind of error. The
+second kind still needs a person.
 
 ### The 145-class sweep and the control runs
 

@@ -388,6 +388,11 @@ export const ttl = 60 * ... * 30
 const id = Math.random().toString(36)
 ```
 **`src/missing.ts:7`:** `const secret = 'x'`
+In Node.js, `path.join` is used and `c.env.KEY` is read; `*.spec.ts` files were skipped.
+**exec.ts** (lines 1-2):
+```ts
+import { exec } from 'child_process'
+```
 ```ts
 // src/auth/token.ts L1
 export const ttl = 60 * 60 * 24 * 30
@@ -401,11 +406,13 @@ const invented = true
           got[:3] == [("src/exec.ts:2", "verified"), ("src/exec.ts:2", "verified"), ("token.ts:1", "verified")], str(got))
     check("verify: a real quote at the wrong line is flagged", got[3] == ("src/long.ts:2", "wrong-line"), str(got))
     check("verify: invented code, a missing file and a half-invented quote fail",
-          got[4:] == [("src/exec.ts:40", "not-found"), ("src/missing.ts:7", "no-file"), ("src/auth/token.ts:1", "partial")], str(got))
+          got[4:6] == [("src/exec.ts:40", "not-found"), ("src/missing.ts:7", "no-file")] and got[-1] == ("src/auth/token.ts:1", "partial"), str(got))
+    check("verify: a bold file name with a line range is a citation, and Node.js and c.env are not",
+          got[6] == ("exec.ts:1", "verified") and len(got) == 8 and res["summary"]["citations_with_a_missing_file"] == 1, str(got))
     s = res.get("summary", {})
-    check("verify: summary and exit status", cp.returncode == 1 and s.get("quotes_checked") == 7 and s.get("quotes_real") == 4
+    check("verify: summary and exit status", cp.returncode == 1 and s.get("quotes_checked") == 8 and s.get("quotes_real") == 5
           and s.get("citations_with_a_missing_file") == 1 and s.get("citations_past_the_end_of_the_file") == 1
-          and "4 of 7 quotes" in cp.stdout and "| Report line | Cited | Verdict |" in (out / "report-check.md").read_text(), cp.stdout + cp.stderr[-300:])
+          and "5 of 8 quotes" in cp.stdout and "| Report line | Cited | Verdict |" in (out / "report-check.md").read_text(), cp.stdout + cp.stderr[-300:])
     rpt.write_text("## Finding\n**`src/exec.ts:2`:** `exec(userInput)`\n")
     cp = subprocess.run([sys.executable, str(HERE.parent / "verify_report.py"), "--report", str(rpt), "--repo", str(repo)], capture_output=True, text=True)
     check("verify: a clean report exits 0", cp.returncode == 0 and "1 of 1 quotes" in cp.stdout, cp.stdout + cp.stderr[-300:])

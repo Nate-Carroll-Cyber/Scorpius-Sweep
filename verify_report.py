@@ -45,11 +45,12 @@ import sys
 from pathlib import Path
 
 EXT = (r"(?:tsx?|jsx?|mjs|cjs|py|go|rs|java|kt|kts|c|h|cc|cpp|hpp|cs|rb|php|swift|scala|sh|bash|zsh|sql|jsonc?|ya?ml|toml|xml|html?|css|scss|"
-       r"md|tf|ini|cfg|conf|env|lock|gradle|proto|vue|svelte|txt|ps1|pl|lua|dart|ex|exs|erl|hs|m|mm|plist|properties)")
+       r"md|tf|ini|cfg|conf|lock|gradle|proto|vue|svelte|txt|ps1|pl|lua|dart|ex|exs|erl|hs|m|mm|plist|properties)")
 NAME = r"(?:\.?[\w@][\w@.+-]*\." + EXT + r"|Dockerfile(?:\.[\w-]+)?|Makefile|Jenkinsfile|Gemfile|Procfile)"
 PATH = r"(?:[\w@.+-]+/)*" + NAME
-CITE = re.compile(r"(?<![\w/.@+*-])(" + PATH + r")(?![\w/])"
-                  r"(?:`?\s*(?::|,?\s*\(?\s*(?:L|[Ll]ines?\s+))\s*L?(\d+)(?:\s*[-–]\s*L?(\d+))?)?")
+CITE = re.compile(r"(?<![\w/.@+-])(" + PATH + r")(?![\w/])"
+                  r"(?:[`*]{0,3}\s*(?::|,?\s*\(?\s*(?:L|[Ll]ines?\s+))\s*L?(\d+)(?:\s*[-\u2013]\s*L?(\d+))?)?")
+PROSE_NAME = re.compile(r"^[A-Z][A-Za-z0-9]*\.js$")          # Node.js, Next.js: a product name, not a file
 FULL_PATH = re.compile(r"^" + PATH + r"$")
 TICK = re.compile(r"`([^`\n]+)`")
 FENCE = re.compile(r"^\s*(```|~~~)")
@@ -224,8 +225,10 @@ def parse(report: str, repo: Repo) -> tuple[list[dict], list[dict]]:
         start = int(m.group(2)) if m.group(2) else None
         end = int(m.group(3)) if m.group(3) else start
         files = repo.resolve(m.group(1))
-        if not files and "/" not in m.group(1) and not m.group(2) and (m.group(1).startswith(".") or m.group(1) in KIT_FILES):
-            return None                      # ".spec.ts" in prose is a kind of file, and leads.json is the kit's own
+        last = m.group(1).rsplit("/", 1)[-1]
+        if not files and not m.group(2) and (PROSE_NAME.match(last) or (
+                "/" not in m.group(1) and (m.group(1).startswith(".") or m.group(1) in KIT_FILES))):
+            return None       # ".spec.ts" is a kind of file, Node.js is a product, and leads.json is the kit's own
         c = {"report_line": lineno, "section": section, "path": m.group(1), "start": start, "end": end, "files": files}
         if not files:
             c["status"] = "no-file"
