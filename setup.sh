@@ -7,7 +7,13 @@
 #
 # run_review.sh accepts the same target arguments, so setup only has to be run once per machine.
 #
-# Queries: queries/<name>.json if it exists, else queries/all.json. Override with ANTARES_QUERIES=path.
+# Queries, first match wins:
+#   1. ANTARES_QUERIES=path
+#   2. queries/<name>.json if it exists
+#   3. the official Antares CLI's plan, when `antares` is on the PATH: it selects up to 50 CWEs from evidence in the
+#      target, and the selection is written to queries/<name>.json (the plan itself to queries/<name>.plan.json)
+#   4. queries/all.json, the 145 benchmark classes
+# The CLI is optional. Without it, or with ANTARES_PLAN=0, step 3 is skipped and the kit runs on its own.
 # Model: the Ollama model named by ANTARES_MODEL (default antares-1b). See RUNBOOK.md section 6.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -32,12 +38,8 @@ else
     TARGET_URL="$SRC"
   fi
   QUERIES="${ANTARES_QUERIES:-}"
-  if [ -z "$QUERIES" ]; then
-    if [ -f "queries/$TARGET_NAME.json" ]; then QUERIES="queries/$TARGET_NAME.json"; else QUERIES="queries/all.json"; fi
-  fi
   OUT_DIR="results/$TARGET_NAME"
 fi
-[ -f "$QUERIES" ] || { echo "queries file not found: $QUERIES"; exit 2; }
 # Model: ANTARES_MODEL wins, then the one recorded for this target, then the default.
 MODEL="${ENV_MODEL:-${MODEL:-antares-1b}}"
 
@@ -50,6 +52,27 @@ if [ -n "${TARGET_URL:-}" ] && [ ! -d "$TARGET_DIR/.git" ]; then
   git -C "$TARGET_DIR" -c advice.detachedHead=false checkout -q FETCH_HEAD
 fi
 [ -d "$TARGET_DIR" ] || { echo "target directory not found: $TARGET_DIR"; exit 1; }
+if [ -z "${QUERIES:-}" ]; then
+  if [ -f "queries/$TARGET_NAME.json" ]; then
+    QUERIES="queries/$TARGET_NAME.json"
+  elif [ "${ANTARES_PLAN:-1}" != "0" ] && command -v antares >/dev/null 2>&1; then
+    # The plan reads the target and selects CWE classes from what it finds. It makes no model call.
+    PLAN="queries/$TARGET_NAME.plan.json"
+    if antares plan "$TARGET_DIR" --format json > "$PLAN.tmp" && python3 make_queries.py --plan "$PLAN.tmp" > "queries/$TARGET_NAME.json.tmp"; then
+      mv "$PLAN.tmp" "$PLAN"
+      mv "queries/$TARGET_NAME.json.tmp" "queries/$TARGET_NAME.json"
+      QUERIES="queries/$TARGET_NAME.json"
+      echo "queries selected by antares plan"
+    else
+      echo "antares plan did not produce a selection; using queries/all.json"
+      QUERIES="queries/all.json"
+    fi
+  else
+    echo "no plan (the antares CLI is optional and is not installed, or ANTARES_PLAN=0); using all 145 classes in queries/all.json"
+    QUERIES="queries/all.json"
+  fi
+fi
+[ -f "$QUERIES" ] || { echo "queries file not found: $QUERIES"; exit 2; }
 COMMIT="$(git -C "$TARGET_DIR" rev-parse --short HEAD 2>/dev/null || echo "not a git checkout")"
 echo "target $TARGET_NAME at $TARGET_DIR ($COMMIT)"
 echo "queries $QUERIES"
@@ -87,7 +110,9 @@ if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
   docker build -q -t antares-sandbox . >/dev/null
   echo "docker sandbox image antares-sandbox built"
 else
-  echo "docker is not answering; the allowlist sandbox will be used (the model's 'find -exec' commands are refused there)"
+  echo "Docker is not answering. Start Docker Desktop and run setup again."
+  echo "The model's commands only run inside the sandbox container, so there is no run without it."
+  exit 1
 fi
 
 FIRST="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[0]["id"])' "$QUERIES")"

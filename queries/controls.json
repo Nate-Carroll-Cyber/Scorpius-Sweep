@@ -1,6 +1,32 @@
 [
- {"id": "control-unknown", "cwe": "CONTROL", "cwe_description": "Unknown vulnerability class"},
- {"id": "control-invented-1", "cwe": "CONTROL", "cwe_description": "CWE-9901: Improper Ordering of Palette Hues — The product assigns colour values to interface elements, but it does not verify that adjacent hues follow the declared palette ordering."},
- {"id": "control-invented-2", "cwe": "CONTROL", "cwe_description": "CWE-9902: Reliance on Lunar Phase for Scheduling — The product schedules routine operations according to the phase of the moon without validating the almanac source."},
- {"id": "control-invented-3", "cwe": "CONTROL", "cwe_description": "CWE-9903: Excessive Politeness in Log Messages — The product writes log messages that contain more courteous phrases than the logging policy permits."}
+ {
+  "id": "control-unknown",
+  "cwe": "CONTROL",
+  "cwe_description": "Unknown vulnerability class"
+ },
+ {
+  "id": "control-unspecified",
+  "cwe": "CONTROL",
+  "cwe_description": "CWE-0: Unspecified Weakness — No description is available for this weakness."
+ },
+ {
+  "id": "control-invented-1",
+  "cwe": "CONTROL",
+  "cwe_description": "CWE-9901: Improper Ordering of Palette Hues — The product assigns colour values to interface elements, but it does not verify that adjacent hues follow the declared palette ordering."
+ },
+ {
+  "id": "control-invented-2",
+  "cwe": "CONTROL",
+  "cwe_description": "CWE-9902: Reliance on Lunar Phase for Scheduling — The product schedules routine operations according to the phase of the moon without validating the almanac source."
+ },
+ {
+  "id": "control-invented-3",
+  "cwe": "CONTROL",
+  "cwe_description": "CWE-9903: Excessive Politeness in Log Messages — The product writes log messages that contain more courteous phrases than the logging policy permits."
+ },
+ {
+  "id": "control-invented-4",
+  "cwe": "CONTROL",
+  "cwe_description": "CWE-9904: Inconsistent Rounding of Decorative Margins — The product rounds layout margins that are used only for decoration differently from one screen to the next."
+ }
 ]

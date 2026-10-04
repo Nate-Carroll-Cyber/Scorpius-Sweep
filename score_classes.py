@@ -2,187 +2,197 @@
 # Scorpius Sweep
 # Copyright 2026 Nate Carroll (Nate-Carroll-Cyber)
 # SPDX-License-Identifier: Apache-2.0
-"""Score each CWE class by how Antares searched for it, from the sweep transcripts.
+"""Score each CWE class of a finished sweep against the control runs.
 
-    python3 score_classes.py --out results/<name> --queries queries/all.json \\
-        [--controls results/<name>-controls --control-queries queries/controls.json]
+    python3 score_classes.py --out results/<name>
+    python3 score_classes.py --out results/<name> --controls-dir results/<other> --queries queries/<subset>.json --write-leads
 
-A sweep on one repository cannot say which classes the model was trained on: a class with no hit
-may be absent from the repository or unknown to the model. What the transcripts do show is whether
-the model has a search strategy for a class. This script measures that, per class:
+The control queries (queries/controls.json) ask the model about no class and about invented classes.
+The rate at which those runs name a file is what the model does on this repository whatever it is
+asked. A file counts for a real class only when the class named it in most of its runs and at a
+higher rate than the controls did (one-sided Fisher exact test, p at most --alpha).
 
-  learned_terms   search terms that are not words from the CWE description, are not generic (used
-                  for more than a quarter of all classes), and were not used for any control. A
-                  model that only echoes the description, or reuses the same terms everywhere,
-                  scores near zero.
-  echo_share      share of its search terms that are just words from the description.
-  agreed_files    source files named by at least two runs.
-  invented_share  share of submitted paths that do not exist.
-  repeat_share    share of commands that repeat an earlier command in the same run.
+  lift            the class has such a file. The class label changed the answer.
+  baseline-only   the class agreed on files, and the controls name each of them about as often.
+  no-agreed-lead  no source file was named by enough runs.
 
-With --controls, the same scores are computed for invented classes that do not exist. A real class
-is listed as "has a strategy" only when its learned_terms beat every control.
+Per class it also reports invented_share (submitted paths that do not exist) and repeat_share
+(commands that repeat an earlier command in the same run). Per file it reports how many classes
+agreed on it and how many control runs named it.
 
-Writes class-scores.json and class-scores.md into --out. Standard library only.
+Reads the per-run result files under <out>/transcripts and <controls-dir>/transcripts, so it works
+on an interrupted sweep and on one made before controls were part of the run. Writes
+class-scores.json and class-scores.md into --out. With --write-leads it also rewrites leads.json.
+Standard library only.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
+import sys
 from pathlib import Path
 
-STOP = set("""rg grep egrep fgrep find cat head tail sed awk ls tree wc sort uniq cut xargs file stat echo pwd cd nl du diff
-name iname type print maxdepth mindepth path not include exclude glob files with matches line number only and the for
-workspace repo src lib test tests node modules json yaml yml txt true false null var let const function return import from
-""".split())
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from antares_locate import DEFAULT_ALPHA, baseline_files, build_leads, is_noise_file, majority, rate_p  # noqa: E402
+
 TOOL_CALL = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
-NOISE = re.compile(r"(\.d\.ts$|\.(spec|test|eval)\.[a-z]+$|(^|/)(tests?|__tests__|fixtures?|node_modules|dist|build|vendor)/"
-                   r"|(^|/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig[^/]*\.json|wrangler\.(jsonc?|toml)|CHANGELOG\.md|README\.md|LICENSE)$"
-                   r"|(^|/)\.[^/]+$|\.config\.[a-z]+$|\.(md|lock|map|snap)$)", re.I)
+RESULT_NAME = re.compile(r"^(?P<id>.+)\.run(?P<n>\d+)\.result\.json$")
 
 
-def words(text: str) -> set[str]:
-    out = set()
-    for w in re.findall(r"[A-Za-z][A-Za-z0-9]{2,}", text):
-        out.add(w.lower())
-        for part in re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])", w):  # camelCase pieces
-            if len(part) >= 3:
-                out.add(part.lower())
-    return out
-
-
-def stem(w: str) -> str:
-    for suf in ("ization", "isation", "ations", "ation", "ments", "ment", "ings", "ing", "ized", "ised", "ies", "ed", "es", "s"):
-        if w.endswith(suf) and len(w) - len(suf) >= 3:
-            return w[: -len(suf)]
-    return w
-
-
-def search_terms(command: str) -> set[str]:
-    """Words the model searched for: everything in the command except tool names, options and paths."""
-    terms = set()
-    for tok in re.findall(r"\"(?:[^\"\\]|\\.)*\"|'[^']*'|\S+", command):
-        bare = tok.strip("\"'")
-        if tok.startswith("-") or bare in (".", "/workspace/repo", "{}", ";", "\\;", "|", "&&"):
+def repeat_counts(transcript: Path) -> tuple[int, int]:
+    """Commands in one run, and how many of them repeat an earlier command of that run."""
+    commands = repeats = 0
+    seen = set()
+    for line in transcript.read_text(encoding="utf-8").splitlines():
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
             continue
-        if tok[0] not in "\"'" and ("/" in bare or bare.startswith(".")):
-            continue  # an unquoted path
-        terms |= {w for w in words(bare) if w not in STOP}
-    return terms
+        if rec.get("role") != "assistant":
+            continue
+        m = TOOL_CALL.search(rec.get("content", ""))
+        if not m:
+            continue
+        try:
+            call = json.loads(m.group(1))
+        except json.JSONDecodeError:
+            continue
+        if call.get("name") != "terminal":
+            continue
+        cmd = str((call.get("arguments") or {}).get("command", ""))
+        commands += 1
+        repeats += cmd in seen
+        seen.add(cmd)
+    return commands, repeats
 
 
-def read_class(out: Path, qid: str, description: str) -> dict | None:
-    desc_stems = {stem(w) for w in words(description)}
-    terms: set[str] = set()
-    commands = repeats = runs = 0
-    for n in range(1, 50):
-        t = out / "transcripts" / f"{qid}.run{n}.jsonl"
-        r = out / "transcripts" / f"{qid}.run{n}.result.json"
-        if not t.is_file() or not r.is_file():
-            break
-        runs += 1
-        seen = set()
-        for line in t.read_text(encoding="utf-8").splitlines():
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if rec.get("role") != "assistant":
-                continue
-            m = TOOL_CALL.search(rec.get("content", ""))
-            if not m:
-                continue
-            try:
-                call = json.loads(m.group(1))
-            except json.JSONDecodeError:
-                continue
-            if call.get("name") != "terminal":
-                continue
-            cmd = str((call.get("arguments") or {}).get("command", ""))
-            commands += 1
-            repeats += cmd in seen
-            seen.add(cmd)
-            terms |= search_terms(cmd)
-    if not runs:
-        return None
-    votes: dict[str, int] = {}
-    real = fake = submitted = 0
-    for n in range(1, runs + 1):
-        res = json.loads((out / "transcripts" / f"{qid}.run{n}.result.json").read_text(encoding="utf-8"))
-        submitted += res["status"] == "submitted"
-        real += len(res["files"])
-        fake += len(res["files_not_in_repo"])
-        for f in res["files"]:
-            votes[f] = votes.get(f, 0) + 1
-    desc_prefixes = {w[:5] for w in words(description) if len(w) >= 5}
-    echo = {t for t in terms if stem(t) in desc_stems or (len(t) >= 5 and t[:5] in desc_prefixes)}
-    return {"id": qid, "runs": runs, "submitted": submitted, "commands": commands, "terms": sorted(terms), "echo": sorted(echo),
-            "agreed_files": sorted(f for f, c in votes.items() if c >= min(2, runs) and not NOISE.search(f)),
-            "invented_share": round(fake / (real + fake), 2) if real + fake else None,
-            "repeat_share": round(repeats / commands, 2) if commands else None}
+def read_entries(folder: Path, names: dict[str, str], only: set[str] | None = None) -> list[dict]:
+    """Result entries in the shape antares_locate.py writes to results.json, rebuilt from the per-run files."""
+    by_id: dict[str, list[tuple[int, Path]]] = {}
+    for p in (folder / "transcripts").glob("*.result.json"):
+        m = RESULT_NAME.match(p.name)
+        if m and (only is None or m.group("id") in only):
+            by_id.setdefault(m.group("id"), []).append((int(m.group("n")), p))
+    order = {qid: i for i, qid in enumerate(names)}
+    entries = []
+    for qid in sorted(by_id, key=lambda q: (order.get(q, len(order)), q)):
+        runs, votes = [], {}
+        commands = repeats = 0
+        have_transcripts = True
+        for _, p in sorted(by_id[qid]):
+            res = json.loads(p.read_text(encoding="utf-8"))
+            runs.append(res)
+            for f in res["files"]:
+                votes[f] = votes.get(f, 0) + 1
+            t = p.with_name(p.name.replace(".result.json", ".jsonl"))
+            if t.is_file():
+                c, r = repeat_counts(t)
+                commands, repeats = commands + c, repeats + r
+            else:
+                have_transcripts = False
+        ranked = sorted(votes.items(), key=lambda kv: (-kv[1], kv[0]))
+        real = sum(len(r["files"]) for r in runs)
+        fake = sum(len(r.get("files_not_in_repo", [])) for r in runs)
+        entries.append({"id": qid, "query": names.get(qid, qid), "ranked_files": [{"file": f, "runs": c} for f, c in ranked], "runs": runs,
+                        "invented_share": round(fake / (real + fake), 2) if real + fake else None,
+                        "repeat_share": round(repeats / commands, 2) if have_transcripts and commands else None})
+    return entries
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", required=True, help="sweep output folder")
-    ap.add_argument("--queries", required=True, help="the query file the sweep used")
-    ap.add_argument("--controls", help="output folder of a sweep over invented classes")
-    ap.add_argument("--control-queries", default="queries/controls.json")
-    ap.add_argument("--common", type=float, default=0.25, help="a term counts as generic when more than this share of classes use it (default 0.25)")
+    ap.add_argument("--controls-dir", help="folder holding the control runs (default: <out>/controls)")
+    ap.add_argument("--queries", help="score only the classes in this query file; default is every class with finished runs in --out")
+    ap.add_argument("--min-agree", type=int, help="runs that must name a file for it to count; default is more than half of the runs")
+    ap.add_argument("--alpha", type=float, default=DEFAULT_ALPHA, help=f"significance level for the rate comparison (default {DEFAULT_ALPHA})")
+    ap.add_argument("--write-leads", action="store_true", help="rewrite <out>/leads.json from the runs on disk")
     args = ap.parse_args()
 
     out = Path(args.out)
-    classes = [c for q in json.loads(Path(args.queries).read_text(encoding="utf-8"))
-               if (c := read_class(out, q["id"], q["cwe_description"]))]
-    if not classes:
+    names: dict[str, str] = {}
+    only = None
+    if args.queries:
+        qs = json.loads(Path(args.queries).read_text(encoding="utf-8"))
+        names = {q["id"]: q.get("cwe_description") or q.get("query") or q["id"] for q in qs}
+        only = set(names)
+    elif (out / "results.json").is_file():
+        names = {e["id"]: e["query"] for e in json.loads((out / "results.json").read_text(encoding="utf-8")).get("results", [])}
+    entries = read_entries(out, names, only)
+    if not entries:
         raise SystemExit(f"no finished runs found under {out / 'transcripts'}")
-    names = {q["id"]: q["cwe_description"].split(" — ")[0] for q in json.loads(Path(args.queries).read_text(encoding="utf-8"))}
-    df: dict[str, int] = {}
-    for c in classes:
-        for t in c["terms"]:
-            df[t] = df.get(t, 0) + 1
-    limit = max(2, math.floor(args.common * len(classes)))
-    control_raw = []
-    if args.controls:
-        for q in json.loads(Path(args.control_queries).read_text(encoding="utf-8")):
-            c = read_class(Path(args.controls), q["id"], q["cwe_description"])
-            if c:
-                control_raw.append(c)
-    control_terms = {t for c in control_raw for t in c["terms"] if t not in c["echo"]}
+    cdir = Path(args.controls_dir) if args.controls_dir else out / "controls"
+    controls = read_entries(cdir, {}) if (cdir / "transcripts").is_dir() else []
+    if not controls:
+        raise SystemExit(f"no control runs found under {cdir / 'transcripts'}. Run the sweep with --controls queries/controls.json "
+                         f"(run_review.sh does), or point --controls-dir at a folder that has them.")
+    runs = max(len(e["runs"]) for e in entries)
+    need = min(args.min_agree or majority(runs), runs)
+    baseline = baseline_files(controls)
+    m = sum(len(e["runs"]) for e in controls)
+    lead_file = build_leads(entries, runs, need, controls, args.alpha)
+    lift = {x["id"]: {f["file"] for f in x["files"]} for x in lead_file["leads"]}
+    base_only = set(lead_file["baseline_only"])
 
-    def finish(c: dict, is_control: bool = False) -> dict:
-        learned = [t for t in c["terms"] if t not in c["echo"] and df.get(t, 0) <= limit and (is_control or t not in control_terms)]
-        c["learned_terms"] = len(learned)
-        c["learned_examples"] = learned[:12]
-        c["echo_share"] = round(len(c["echo"]) / len(c["terms"]), 2) if c["terms"] else None
-        c.pop("terms"), c.pop("echo")
-        return c
-
-    controls = [finish(c, True) for c in control_raw]
-    classes = [finish(c) for c in classes]
-    bar = max((c["learned_terms"] for c in controls), default=None)
-    for c in classes:
-        c["name"] = names.get(c["id"], c["id"])
-        c["has_strategy"] = None if bar is None else c["learned_terms"] > bar
-    classes.sort(key=lambda c: (-c["learned_terms"], c["id"]))
-    report = {"classes_scored": len(classes), "generic_term_limit": limit, "control_bar_learned_terms": bar,
-              "classes_with_a_strategy": None if bar is None else sum(1 for c in classes if c["has_strategy"]),
-              "controls": controls, "classes": classes}
+    classes = []
+    spread: dict[str, int] = {}
+    for e in entries:
+        n = len(e["runs"])
+        agreed = [f for f in e["ranked_files"] if f["runs"] >= need and not is_noise_file(f["file"])]
+        rows = []
+        for f in agreed:
+            spread[f["file"]] = spread.get(f["file"], 0) + 1
+            c = baseline.get(f["file"], 0)
+            rows.append({"file": f["file"], "runs": f["runs"], "control_runs": c, "p": round(rate_p(f["runs"], n, c, m), 4)})
+        verdict = "lift" if e["id"] in lift else "baseline-only" if e["id"] in base_only else "no-agreed-lead"
+        classes.append({"id": e["id"], "name": e["query"].split(" \u2014 ")[0], "verdict": verdict, "runs": n,
+                        "submitted": sum(r["status"] == "submitted" for r in e["runs"]),
+                        "lift_files": [r for r in rows if r["p"] <= args.alpha],
+                        "baseline_files": [r for r in rows if r["p"] > args.alpha],
+                        "invented_share": e["invented_share"], "repeat_share": e["repeat_share"]})
+    rank = {"lift": 0, "baseline-only": 1, "no-agreed-lead": 2}
+    classes.sort(key=lambda c: (rank[c["verdict"]], -len(c["lift_files"]), c["id"]))
+    hot = {h["file"] for h in lead_file["hotspots"]}
+    files = sorted(({"file": f, "classes": n, "hotspot": f in hot, "control_runs": baseline.get(f, 0)} for f, n in spread.items()),
+                   key=lambda x: (-x["classes"], x["file"]))
+    counts = {v: sum(1 for c in classes if c["verdict"] == v) for v in rank}
+    control_rows = [{"id": e["id"], "submitted": sum(r["status"] == "submitted" for r in e["runs"]), "runs": len(e["runs"]),
+                     "agreed_files": [f["file"] for f in e["ranked_files"] if f["runs"] >= majority(len(e["runs"])) and not is_noise_file(f["file"])],
+                     "invented_share": e["invented_share"], "repeat_share": e["repeat_share"]} for e in controls]
+    report = {"classes_scored": len(classes), "runs_per_class": runs, "min_runs_agreeing": need, "verdicts": counts,
+              "baseline": {**lead_file["baseline"], "source_files": {f: c for f, c in sorted(baseline.items()) if not is_noise_file(f)}},
+              "controls": control_rows, "files": files, "classes": classes}
     (out / "class-scores.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
+
+    b = lead_file["baseline"]
+
+    def cell(rows):
+        return ", ".join(f"`{r['file']}` {r['runs']}/{runs} vs {r['control_runs']}/{m}, p {r['p']}" for r in rows) or "none"
+
     lines = ["# Class scores", "",
-             f"{len(classes)} classes scored. A term is generic when more than {limit} classes use it.",
-             "No control run was supplied, so no threshold is applied." if bar is None else
-             f"Control bar: {bar} learned terms. {report['classes_with_a_strategy']} classes beat it.", "",
-             "| Class | Learned terms | Examples | Echo share | Agreed files | Invented share | Repeat share |", "|---|---|---|---|---|---|---|"]
-    for c in controls + classes:
-        lines.append(f"| {c.get('name', c['id'])} | {c['learned_terms']} | {', '.join(c['learned_examples'][:6])} | {c['echo_share']} | "
-                     f"{len(c['agreed_files'])} | {c['invented_share']} | {c['repeat_share']} |")
+             f"{len(classes)} classes at up to {runs} runs each, compared with {b['control_runs']} control runs "
+             f"(agreement {need} runs, alpha {args.alpha}).",
+             f"{counts['lift']} show lift, {counts['baseline-only']} agreed only on files the controls name as often, "
+             f"{counts['no-agreed-lead']} had no agreed file."]
+    if not b["enough_runs"]:
+        lines.append("There are too few runs for any file to clear the rate comparison at this alpha.")
+    lines += ["", "## Files", "", "| File | Classes that agreed on it | Hotspot | Control runs |", "|---|---|---|---|"]
+    lines += [f"| `{x['file']}` | {x['classes']} | {'yes' if x['hotspot'] else 'no'} | {x['control_runs']} of {m} |" for x in files]
+    lines += ["", "## Controls", "", "| Control | Submitted | Agreed files | Invented share | Repeat share |", "|---|---|---|---|---|"]
+    lines += [f"| {c['id']} | {c['submitted']} of {c['runs']} | {', '.join('`' + f + '`' for f in c['agreed_files']) or 'none'} | "
+              f"{c['invented_share']} | {c['repeat_share']} |" for c in control_rows]
+    lines += ["", "## Classes", "", "| Class | Verdict | Files above the control rate | Files at the control rate | Invented share | Repeat share |",
+              "|---|---|---|---|---|---|"]
+    lines += [f"| {c['name']} | {c['verdict']} | {cell(c['lift_files'])} | {cell(c['baseline_files'])} | "
+              f"{c['invented_share']} | {c['repeat_share']} |" for c in classes]
     (out / "class-scores.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"wrote {out / 'class-scores.json'} and {out / 'class-scores.md'}")
-    if bar is not None:
-        print(f"{report['classes_with_a_strategy']} of {len(classes)} classes beat the control bar of {bar} learned terms")
+    if args.write_leads:
+        (out / "leads.json").write_text(json.dumps(lead_file, indent=1), encoding="utf-8")
+        print(f"rewrote {out / 'leads.json'}")
+    print(f"{len(classes)} classes, {b['control_runs']} control runs: {counts['lift']} lift, {counts['baseline-only']} baseline-only, "
+          f"{counts['no-agreed-lead']} no agreed lead")
     return 0
 
 

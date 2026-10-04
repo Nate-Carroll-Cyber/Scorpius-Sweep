@@ -20,12 +20,47 @@ repository (model_runners/base.py, model_runners/vllm_antares.py, agent.py,
 sandbox.py, Dockerfile). Changes made here are described in the comment block
 at the top of `antares_locate.py`.
 
+The control-token escaping in `antares_locate.py` (the token list, the
+tool-response pattern and the escaping approach in `neutralize`) is adapted
+from the Antares CLI, antares-cli 1.0.0 by Cisco Foundation AI, licensed under
+the Apache License 2.0 (src/antares_cli/inference/granite.py). No other part
+of the CLI is included. `make_queries.py` reads the JSON that the CLI's
+`antares plan` command prints and does not contain CLI code or its CWE
+database.
+
 The CWE identifiers, names, and descriptions in `queries/all.json` and
-`queries/cwe-catalog.json` are taken from that repository's data/manifest.csv.
-The Common Weakness Enumeration (CWE) is maintained by The MITRE Corporation.
-CWE content is (c) The MITRE Corporation and is used under the CWE Terms of
-Use (https://cwe.mitre.org/about/termsofuse.html).
+`queries/cwe-catalog.json` are taken from that repository's data/manifest.csv
+and derive from the Common Weakness Enumeration (CWE), published by The MITRE
+Corporation at https://cwe.mitre.org/.
+
+MITRE copyright designation
+
+    Use of the Common Weakness Enumeration (CWE(TM)) and the associated
+    references from this website are subject to the Terms of Use. CWE is
+    sponsored by the U.S. Department of Homeland Security (DHS) Cybersecurity
+    and Infrastructure Security Agency (CISA) and managed by the Homeland
+    Security Systems Engineering and Development Institute (HSSEDI) which is
+    operated by The MITRE Corporation (MITRE). Copyright (c) 2006-2026, The
+    MITRE Corporation. CWE, CWSS, CWRAF, and the CWE logo are trademarks of
+    The MITRE Corporation.
+
+MITRE license
+
+    CWE(TM) is free to use by any organization or individual for any research,
+    development, and/or commercial purposes, per these CWE Terms of Use.
+    Accordingly, The MITRE Corporation hereby grants you a non-exclusive,
+    royalty-free license to use CWE for research, development, and commercial
+    purposes. Any copy you make for such purposes is authorized on the
+    condition that you reproduce MITRE's copyright designation and this
+    license in any such copy. CWE is a trademark of The MITRE Corporation.
+    Please contact cwe@mitre.org if you require further clarification on this
+    issue.
+
+The current terms, including MITRE's disclaimers, are at
+https://cwe.mitre.org/about/termsofuse.html. These terms apply to the
+CWE-derived content only.
 
 This project is not affiliated with or endorsed by Cisco Systems, Inc. Antares
-is a model family published by Cisco Foundation AI. The model weights are not
-part of this project and are obtained separately under their own license.
+is a model family published by Cisco Foundation AI. The model weights and the
+Antares CLI are not part of this project and are obtained separately under
+their own licenses.
