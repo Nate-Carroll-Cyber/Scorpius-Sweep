@@ -33,7 +33,6 @@ It is not a vulnerability scanner and should not be used as one.
   files in 30 of 30 control runs. Those answers were scattered, with no file in more than 4 of 30.
 - The 145 CWE classes in the catalog are the ones Cisco's benchmark evaluates. Which classes the
   model was trained on is not published.
-- All results so far come from one TypeScript target on one machine.
 - Every lead needs a person to verify it.
 
 `RUNBOOK.md` is the full procedure, with results from a worked example. This page is the map.
@@ -80,14 +79,14 @@ benchmark classes, and `./run_review.sh --all` does the same when it is installe
 | `.gitignore` | Keeps weights, a local copy of the CLI, targets, results and target-specific query files out of a repository. |
 | `assets/` | The project banner. |
 
+<img width="4032" height="1952" alt="How a sweep runs" src="https://github.com/user-attachments/assets/74e8bcc9-474d-4355-8a92-cd6a8c9094dc" />
+
 ## What is not in this package
 
 - The Antares weights. They are gated on Hugging Face under their own license.
 - The Antares CLI and its CWE database. The CLI is optional and installed separately.
 - Any target code, results, transcripts or plans. Those are written on your machine under
   `targets/`, `results/` and `queries/<name>*.json`.
-
-The `.gitignore` keeps all of these out of a repository if you work inside the kit folder.
 
 ## License
 
