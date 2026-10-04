@@ -76,6 +76,8 @@ benchmark classes, and `./run_review.sh --all` does the same when it is installe
 | `.gitignore` | Keeps weights, a local copy of the CLI, targets, results and target-specific query files out of a repository. |
 | `assets/` | The project banner. |
 
+<img width="4032" height="1952" alt="How a sweep runs" src="https://github.com/user-attachments/assets/0c767606-b29d-4e19-8398-b5e3a33805ea" />
+
 ## What is not in this package
 
 - The Antares weights. They are gated on Hugging Face under their own license.
