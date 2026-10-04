@@ -14,9 +14,9 @@ Limits to read before using any result.
 | Not a vulnerability scanner | A clean result does not mean the code is clean. Run without hints, the pipeline confirmed one finding in the worked example and dismissed four weaknesses in files it had read (section 7). |
 | Low precision | Cisco reports a File F1 of 0.209 for Antares-1B on its own benchmark. Generated files often rank first. |
 | Training classes unknown | The 145 CWE classes in the catalog are the ones the benchmark evaluates. Cisco does not publish the training list (section 3). |
-| The class often changes nothing | Asked about no class or an invented one, Antares-1B still submitted files in 12 of 12 runs. In the worked example 18 of 62 classes with an agreed file named only files the control runs name about as often (section 7). Each class is compared with control runs (section 5). |
+| It always answers | Asked about no class or an invented one, Antares-1B submitted files in 30 of 30 control runs and never answered "no vulnerability found". Those answers were scattered, with no file in more than 4 of the 30. Each class is compared with the control runs (sections 5 and 7). |
 | One target | Every number here comes from one TypeScript repository on one machine. Classes that belong to other languages score poorly for that reason alone. |
-| Driver judgment | The driver model quotes code accurately and misjudges it. Its dismissals are not evidence of absence. |
+| Driver reliability | The driver model misjudges real code, and in one run it invented the code it quoted. `verify_report.py` checks every quote against the source (section 9). Its dismissals are not evidence of absence. |
 | Human review | Every lead needs a person to verify it. |
 
 ## 1. What the stack is
@@ -107,7 +107,7 @@ hyphen. The choice is recorded in `.antares-target`, which the Cline rule reads.
 1. Checks Python and Ollama.
 2. Checks that the Antares model is registered in Ollama. The default name is `antares-1b`. Set `ANTARES_MODEL` to another Ollama model name before `./setup.sh` to use a different one. Section 6 shows how to create the model from the official weights.
 3. Clones the target, pinned to the commit or ref if one was given. Skipped for a local path. Then chooses the query file (see below).
-4. Runs the harness tests (76 checks, and 5 more against the real sandbox when Docker is answering).
+4. Runs the harness tests (81 checks, and 5 more against the real sandbox when Docker is answering).
 5. Builds the `antares-sandbox` Docker image (Ubuntu 24.04 with `rg` and `tree`) and stops if Docker is not answering. The harness also builds the image on first use if it is missing. It does not fall back to a bare image or to running commands on the host.
 6. Probes the model and picks the device that returns a tool call.
 7. Runs one smoke query, the first in the query file.
@@ -533,16 +533,33 @@ confirmed in the same code.
 Three conclusions.
 
 - The driver quotes accurately in both passes and misjudges in both. A dismissal from it is not
-  evidence of absence.
+  evidence of absence. A later run did not quote accurately (see the third pass below).
 - Shown where to look, it confirmed eight findings. Left to Antares's ranking and its own
   search, it confirmed one. On this target the reference list did most of the work in Pass A.
 - It stopped after 9 of 14 queries without saying so. The harness now writes a short
   `leads.json` with a query count, and the task text makes the driver state the count and check
   it at the end.
 
+A third pass. The same driver was later run on the leads of the planned sweep, and its report
+quoted code that is not in the repository. `verify_report.py` was written in response and run on
+all three reports.
+
+| Report | Quotes found in the source | Citations naming a missing file | Citations past the end of a file |
+|---|---|---|---|
+| Pass A | 12 of 12 | 0 | 0 |
+| Pass B | 3 of 3 | 0 | 0 |
+| Third pass | 0 of 18 | 8 | 9 |
+
+The third report listed 14 confirmed findings. Its quotes included a session identifier built
+with `Math.random()`, a refresh-token field and a path-normalising function, none of which exist
+in the source, and it cited line 383 of a 71-line file. It also listed hotspot files and control
+counts that were not in `leads.json`. Context size was checked and was not the cause. A driver
+that quotes accurately on one run and invents on the next cannot be trusted on its own word in
+either, so the report is now checked by script before a person reads it.
+
 ### The 145-class sweep and the control runs
 
-After the two passes above, Antares-1B was run on all 145 benchmark classes, then on four control
+After the passes above, Antares-1B was run on all 145 benchmark classes, then on four control
 queries. This sweep was made at 3 runs per class and 12 control runs, before the defaults were
 raised to 5 and 30. The figures below are from those runs, scored with the comparison in section
 5. Agreement is 2 of 3. They are provisional until the sweep is topped up to the new defaults.
@@ -624,6 +641,45 @@ the planned classes look better. With 12 control runs the current rule is lenien
 30-control data before either reading is safe. The driver's worklist for the planned sweep at
 this point is 20 classes and 6 hotspot files.
 
+### The planned sweep at 5 runs and 30 control runs
+
+The planned 50 classes were then topped up with `--resume` to the current defaults, 5 runs per
+class and six control queries at 5 runs each. Agreement is 3 of 5.
+
+| Measure | Result |
+|---|---|
+| Class runs | 250, of which 248 ended with a submission |
+| Commands per run | 13.7 of the 15 allowed |
+| Submitted paths | 770, of which 141 (18%) do not exist |
+| Control runs | 30, all ended with a submission. None answered "no vulnerability found" |
+| Files named by a control run | 41. The most named was the server entry file, in 4 of 30 runs |
+| Files a control query agreed on | None |
+| Classes with an agreed source file | 22 of 50 |
+| Classes whose agreed file cleared the comparison | 22 of 22 |
+| Hotspot files | 0 |
+| Distinct lead files across the 22 classes | 9 |
+
+Thirty control runs changed the reading of the controls. At 3 runs the control with no class
+named the OAuth handler, the OAuth router and the server entry file in 2 of 3 runs each, which
+looked like a default answer. At 5 runs it agreed on nothing, and across all 30 control runs the
+OAuth handler and router were named twice each. The model always submits something for a
+nonsense question, but it does not submit the same thing. The earlier default answer was a
+small-sample effect.
+
+With control rates that low, every file that 3 of 5 class runs agreed on cleared the comparison,
+so on this target the agreement threshold did the filtering and the controls confirmed it. The
+leads still cluster. Ten classes point at the OAuth handler, five at the sandbox container app,
+four at the OAuth helper utilities, three at the OAuth router and three at the sandbox file
+utilities. The model sends authentication and access classes to the OAuth files and path and
+command classes to the sandbox files. That is a coarse topic match, and it is not the same as
+telling one weakness from another inside a file.
+
+The reference check at 5 runs. Seven of the planned classes have reference files. A reference
+file was named by at least one run for 4 of the 7. Only command injection reached agreement,
+naming the sandbox container app in 4 of 5 runs, and it is a lead. Insufficiently protected
+credentials named the OAuth handler and router in 2 of 5 runs each, down from 2 of 3, and no
+longer agrees. The 22 leads have not been checked by hand.
+
 ## 8. Driver model and context window
 
 Pull the driver and build a variant with a larger context.
@@ -703,6 +759,40 @@ To have Cline run the localizer as well.
 Follow .clinerules/scorpius-sweep.md from step 1.
 ```
 
+### Step 4. Check the report
+
+The driver can quote code that does not exist. `verify_report.py` looks up every citation and
+every quoted piece of code in the report in the target's source. No model is involved.
+
+```
+python3 verify_report.py
+```
+
+It reads the report and target named in `.antares-target`, prints one summary line, and writes
+`report-check.md` and `report-check.json` beside the report. `--report` and `--repo` point it at
+other files. The exit status is 1 when anything fails.
+
+| Verdict for a quote | Meaning |
+|---|---|
+| `verified` | Every quoted line is in the cited file, at or near the cited line. |
+| `wrong-line` | Every quoted line is in the cited file, somewhere else. |
+| `partial` | Some quoted lines are in the cited file and some are not. |
+| `elsewhere` | The quoted lines are in another file of the repository. |
+| `not-found` | The quoted lines are not in the repository. |
+| `no-file` | The cited file is not in the repository. |
+
+Matching ignores indentation and line breaks, and a line the driver shortened with an ellipsis
+is matched piece by piece. Citations are also listed when they name a file that does not exist
+or a line past the end of the file.
+
+The rule file has the driver run the script itself, correct or downgrade what fails, and copy
+the summary line into the report. Run it again yourself when the driver has finished, since the
+driver's copy of the line is one more thing it can get wrong. Read only the findings whose
+quotes are `verified` or `wrong-line`.
+
+The script answers one question, whether the report quotes code that exists where it says. It
+does not judge whether a finding is right, and a wrong dismissal of real code passes it.
+
 What the rule file enforces.
 
 | Rule | Reason |
@@ -715,6 +805,7 @@ What the rule file enforces.
 | Check every instance before dismissing, and list what was read and searched | Dismissals were the driver's weakest output. |
 | Open nothing under `results/` except `leads.json`, and nothing under `queries/` | Those folders hold scoring answers. |
 | Write each query to the report before starting the next | A stalled session keeps its finished work. |
+| Quote only from an open file, then run `verify_report.py` and fix or downgrade what fails | One run produced 14 confirmed findings whose quoted code was not in the repository. |
 
 Cline settings. Allow file reads in the workspace. Keep command execution on manual approval.
 Deny anything that builds, installs, or runs code from the target.

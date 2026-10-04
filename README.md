@@ -23,14 +23,17 @@ the files and confirms or dismisses each lead.
 
 It is not a vulnerability scanner and should not be used as one.
 
+- The second model can invent the code it quotes. One run produced 14 confirmed findings and none
+  of its 18 quotes were in the repository. `verify_report.py` catches that, and nothing else.
 - A clean result does not mean the code is clean. In the worked example the two-model pipeline,
   run without hints, confirmed one finding and dismissed four weaknesses that were in files it read.
 - The localizer's precision is low. Cisco reports a File F1 of 0.209 for Antares-1B on its own
   benchmark.
-- The model names files even for a class that does not exist. In the worked example 18 of 62
-  classes with an agreed file named only files the control queries name about as often.
+- The model names files even for a class that does not exist. In the worked example it submitted
+  files in 30 of 30 control runs. Those answers were scattered, with no file in more than 4 of 30.
 - The 145 CWE classes in the catalog are the ones Cisco's benchmark evaluates. Which classes the
   model was trained on is not published.
+- All results so far come from one TypeScript target on one machine.
 - Every lead needs a person to verify it.
 
 `RUNBOOK.md` is the full procedure, with results from a worked example. This page is the map.
@@ -43,7 +46,8 @@ It is not a vulnerability scanner and should not be used as one.
 ./run_review.sh <git-url-or-path> --device cpu  # sweep a different target
 ```
 
-Then start Cline in this folder and send the custom prompt in section 9 of the runbook.
+Then start Cline in this folder and send the task in section 9 of the runbook. When it finishes,
+run `python3 verify_report.py` to check that the code it quoted exists.
 
 ## Requirements
 
@@ -69,13 +73,12 @@ benchmark classes, and `./run_review.sh --all` does the same when it is installe
 | `score_classes.py` | Scores each class against the control runs with a rate comparison. |
 | `Dockerfile` | Sandbox image: Ubuntu 24.04 with `rg` and `tree`. |
 | `.clinerules/scorpius-sweep.md` | The rule the driver model follows in Cline. |
-| `tests/test_harness.py` | 76 checks: parser cases, the loop against a mock Ollama server, the rate comparison and the tools. 5 more run against the real sandbox when Docker is answering. |
+| `verify_report.py` | Checks every citation and quoted line in the driver's report against the target's source. No model involved. |
+| `tests/test_harness.py` | 81 checks: parser cases, the loop against a mock Ollama server, the rate comparison, the report check and the tools. 5 more run against the real sandbox when Docker is answering. |
 | `RUNBOOK.md` | Setup, protocol, weight conversion, worked example, Cline steps, safety boundaries. |
 | `LICENSE`, `NOTICE` | Apache 2.0, with attribution to Cisco's benchmark harness, the Antares CLI and MITRE CWE. |
 | `.gitignore` | Keeps weights, a local copy of the CLI, targets, results and target-specific query files out of a repository. |
 | `assets/` | The project banner. |
-
-<img width="4032" height="1952" alt="How a sweep runs" src="https://github.com/user-attachments/assets/0c767606-b29d-4e19-8398-b5e3a33805ea" />
 
 ## What is not in this package
 

@@ -361,6 +361,57 @@ def tool_tests(tmp: Path) -> None:
                         ("src/exec.ts", False), ("apps/x/src/tools/d1.tools.ts", False), ("apps/c/Dockerfile", False), (".github/workflows/main.yml", False)):
         check(f"noise filter {path}", al.is_noise_file(path) is noise)
 
+def verify_tests(repo: Path, tmp: Path) -> None:
+    """verify_report.py: quotes and citations in a driver report are looked up in the source."""
+    out = tmp / "vr"
+    out.mkdir()
+    long_file = repo / "src" / "long.ts"
+    long_file.write_text("".join(f"const v{i} = {i}\n" for i in range(1, 15)) + "const marker = compute(value)\n")
+    rpt = out / "security-review.md"
+    rpt.write_text("""# Review
+| 1 | Shell exec | CWE-78 | `src/exec.ts:2` | High |
+## Finding 1
+**`src/exec.ts:2`:** `exec(userInput)`
+```ts
+import { exec }   from 'child_process'
+exec(userInput)   // attacker controlled
+```
+## Finding 2
+**`token.ts:1`:**
+```ts
+export const ttl = 60 * ... * 30
+```
+**`src/long.ts:2`:** `const marker = compute(value)`
+## Finding 3
+```ts
+// src/exec.ts L40
+const id = Math.random().toString(36)
+```
+**`src/missing.ts:7`:** `const secret = 'x'`
+```ts
+// src/auth/token.ts L1
+export const ttl = 60 * 60 * 24 * 30
+const invented = true
+```
+""")
+    cp = subprocess.run([sys.executable, str(HERE.parent / "verify_report.py"), "--report", str(rpt), "--repo", str(repo)], capture_output=True, text=True)
+    res = json.loads((out / "report-check.json").read_text()) if (out / "report-check.json").exists() else {}
+    got = [(q["cited"], q["verdict"]) for q in res.get("quotes", [])]
+    check("verify: real quotes pass, shortened and re-indented ones too",
+          got[:3] == [("src/exec.ts:2", "verified"), ("src/exec.ts:2", "verified"), ("token.ts:1", "verified")], str(got))
+    check("verify: a real quote at the wrong line is flagged", got[3] == ("src/long.ts:2", "wrong-line"), str(got))
+    check("verify: invented code, a missing file and a half-invented quote fail",
+          got[4:] == [("src/exec.ts:40", "not-found"), ("src/missing.ts:7", "no-file"), ("src/auth/token.ts:1", "partial")], str(got))
+    s = res.get("summary", {})
+    check("verify: summary and exit status", cp.returncode == 1 and s.get("quotes_checked") == 7 and s.get("quotes_real") == 4
+          and s.get("citations_with_a_missing_file") == 1 and s.get("citations_past_the_end_of_the_file") == 1
+          and "4 of 7 quotes" in cp.stdout and "| Report line | Cited | Verdict |" in (out / "report-check.md").read_text(), cp.stdout + cp.stderr[-300:])
+    rpt.write_text("## Finding\n**`src/exec.ts:2`:** `exec(userInput)`\n")
+    cp = subprocess.run([sys.executable, str(HERE.parent / "verify_report.py"), "--report", str(rpt), "--repo", str(repo)], capture_output=True, text=True)
+    check("verify: a clean report exits 0", cp.returncode == 0 and "1 of 1 quotes" in cp.stdout, cp.stdout + cp.stderr[-300:])
+    long_file.unlink()
+
+
 def docker_tests(repo: Path) -> None:
     """The real sandbox, when Docker is answering. Skipped otherwise: the stub covers the loop, not the isolation."""
     if not shutil.which("docker") or subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
@@ -391,6 +442,7 @@ def main() -> int:
         scoring_tests()
         loop_tests(repo, tmp)
         tool_tests(tmp)
+        verify_tests(repo, tmp)
         docker_tests(repo)
     print(f"{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0
