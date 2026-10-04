@@ -33,7 +33,6 @@ It is not a vulnerability scanner and should not be used as one.
   files in 30 of 30 control runs. Those answers were scattered, with no file in more than 4 of 30.
 - The 145 CWE classes in the catalog are the ones Cisco's benchmark evaluates. Which classes the
   model was trained on is not published.
-- All results so far come from one TypeScript target on one machine.
 - Every lead needs a person to verify it.
 
 `RUNBOOK.md` is the full procedure, with results from a worked example. This page is the map.
@@ -79,6 +78,8 @@ benchmark classes, and `./run_review.sh --all` does the same when it is installe
 | `LICENSE`, `NOTICE` | Apache 2.0, with attribution to Cisco's benchmark harness, the Antares CLI and MITRE CWE. |
 | `.gitignore` | Keeps weights, a local copy of the CLI, targets, results and target-specific query files out of a repository. |
 | `assets/` | The project banner. |
+
+<img width="4032" height="1952" alt="How a sweep runs" src="https://github.com/user-attachments/assets/22dcf601-5315-40b1-a96b-67ddc98afb4f" />
 
 ## What is not in this package
 
