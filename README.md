@@ -88,8 +88,6 @@ benchmark classes, and `./run_review.sh --all` does the same when it is installe
 - Any target code, results, transcripts or plans. Those are written on your machine under
   `targets/`, `results/` and `queries/<name>*.json`.
 
-The `.gitignore` keeps all of these out of a repository if you work inside the kit folder.
-
 ## License
 
 Apache 2.0. See `LICENSE` and `NOTICE`. The prompt, tool definitions and loop rules are adapted from
