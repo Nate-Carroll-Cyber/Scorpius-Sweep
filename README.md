@@ -31,7 +31,6 @@ It is not a vulnerability scanner and should not be used as one.
   classes with an agreed file named only files the control queries name about as often.
 - The 145 CWE classes in the catalog are the ones Cisco's benchmark evaluates. Which classes the
   model was trained on is not published.
-- All results so far come from one TypeScript target on one machine.
 - Every lead needs a person to verify it.
 
 `RUNBOOK.md` is the full procedure, with results from a worked example. This page is the map.
@@ -44,7 +43,7 @@ It is not a vulnerability scanner and should not be used as one.
 ./run_review.sh <git-url-or-path> --device cpu  # sweep a different target
 ```
 
-Then start Cline in this folder and send the task in section 9 of the runbook.
+Then start Cline in this folder and send the custom prompt in section 9 of the runbook.
 
 ## Requirements
 
